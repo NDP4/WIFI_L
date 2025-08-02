@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# Uninstaller universal untuk WiFi Connection Manager
+# Bisa dijalankan dari mana saja: uninstallwifi
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+print_message() {
+    local color=$1
+    local message=$2
+    echo -e "${color}${message}${NC}"
+}
+
+confirm_action() {
+    local prompt=$1
+    while true; do
+        echo -e "${YELLOW}${prompt} (y/n): ${NC}"
+        read -r response
+        case $response in
+            [Yy]*) return 0;;
+            [Nn]*) return 1;;
+            *) print_message $RED "Silakan jawab dengan y atau n.";;
+        esac
+    done
+}
+
+print_message $BLUE "================================================"
+print_message $BLUE "     WiFi Connection Manager Uninstaller      "
+print_message $BLUE "================================================"
+echo ""
+
+INSTALL_DIR="/usr/local/bin"
+
+# Cek dan hapus file utama
+if [ -f "$INSTALL_DIR/konekwifi" ]; then
+    print_message $GREEN "✓ konekwifi ditemukan di $INSTALL_DIR"
+else
+    print_message $YELLOW "konekwifi tidak ditemukan di $INSTALL_DIR"
+fi
+if [ -f "$INSTALL_DIR/putuswifi" ]; then
+    print_message $GREEN "✓ putuswifi ditemukan di $INSTALL_DIR"
+else
+    print_message $YELLOW "putuswifi tidak ditemukan di $INSTALL_DIR"
+fi
+if [ -f "$INSTALL_DIR/uninstallwifi" ]; then
+    print_message $GREEN "✓ uninstallwifi ditemukan di $INSTALL_DIR"
+else
+    print_message $YELLOW "uninstallwifi tidak ditemukan di $INSTALL_DIR"
+fi
+
+echo ""
+if ! confirm_action "Apakah yakin ingin menghapus WiFi Connection Manager dan semua konfigurasinya?"; then
+    print_message $YELLOW "Uninstall dibatalkan."
+    exit 0
+fi
+
+print_message $BLUE "Memulai penghapusan..."
+
+# Hapus file utama
+if [ -f "$INSTALL_DIR/konekwifi" ]; then
+    sudo rm -f "$INSTALL_DIR/konekwifi" && print_message $GREEN "✓ konekwifi berhasil dihapus"
+fi
+if [ -f "$INSTALL_DIR/putuswifi" ]; then
+    sudo rm -f "$INSTALL_DIR/putuswifi" && print_message $GREEN "✓ putuswifi berhasil dihapus"
+fi
+if [ -f "$INSTALL_DIR/uninstallwifi" ]; then
+    sudo rm -f "$INSTALL_DIR/uninstallwifi" && print_message $GREEN "✓ uninstallwifi berhasil dihapus"
+fi
+
+# Bersihkan konfigurasi user (jika ada)
+CONFIG_DIR="$HOME/.config/konekwifi"
+if [ -d "$CONFIG_DIR" ]; then
+    rm -rf "$CONFIG_DIR" && print_message $GREEN "✓ Konfigurasi user dihapus ($CONFIG_DIR)"
+fi
+
+print_message $GREEN "🗑️  Uninstall selesai! WiFi Connection Manager telah dihapus dari sistem."

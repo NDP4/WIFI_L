@@ -356,16 +356,17 @@ nmcli connection delete "SSID"
 ### Otomatis menggunakan Uninstaller
 
 ```bash
-# Jalankan uninstaller
-./uninstall.sh
+# Jalankan uninstaller dari mana saja
+uninstallwifi
 ```
 
-### Manual
+### Manual (jika diperlukan)
 
 ```bash
 # Hapus file yang terinstall
 sudo rm -f /usr/local/bin/konekwifi
 sudo rm -f /usr/local/bin/putuswifi
+sudo rm -f /usr/local/bin/uninstallwifi
 ```
 
 ## 📄 Lisensi

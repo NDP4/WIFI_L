@@ -89,6 +89,12 @@ if confirm_action "Apakah ingin menginstall WiFi Connection Manager?"; then
         exit 1
     fi
     
+    # Install uninstallwifi agar bisa dijalankan dari mana saja
+    print_message $BLUE "Menambahkan uninstallwifi ke /usr/local/bin ..."
+    sudo cp uninstallwifi /usr/local/bin/uninstallwifi
+    sudo chmod +x /usr/local/bin/uninstallwifi
+    print_message $GREEN "✓ Sekarang Anda bisa uninstall dengan perintah: uninstallwifi dari mana saja!"
+    
     echo ""
     print_message $GREEN "🎉 Instalasi berhasil!"
     print_message $BLUE "Sekarang Anda dapat menggunakan:"
