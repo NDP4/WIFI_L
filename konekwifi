@@ -91,49 +91,162 @@ show_wifi_list() {
     echo "================================================"
 }
 
-# Fungsi untuk koneksi WiFi
-connect_wifi() {
-    echo ""
-    print_message $YELLOW "Masukkan nama WiFi (SSID) yang ingin dihubungkan:"
-    read -r ssid
+# Fungsi untuk menampilkan daftar WiFi dengan nomor untuk dipilih
+show_wifi_selection() {
+    print_message $BLUE "🔍 Memindai WiFi yang tersedia..."
+    print_message $YELLOW "Menjalankan: nmcli device wifi rescan"
+    nmcli device wifi rescan
+    sleep 3
     
-    if [ -z "$ssid" ]; then
-        print_message $RED "SSID tidak boleh kosong!"
+    print_message $BLUE "📶 Daftar WiFi yang tersedia (diurutkan berdasarkan kekuatan sinyal):"
+    echo "================================================"
+    
+    # Simpan daftar WiFi ke dalam array dengan format yang lebih baik
+    # Gunakan nmcli dengan output yang lebih detail dan sudah diurutkan
+    mapfile -t wifi_raw < <(nmcli -t -f SSID,SECURITY,SIGNAL device wifi list --rescan-ssid no | grep -v '^--' | grep -v '^$' | sort -t: -k3 -nr)
+    
+    if [ ${#wifi_raw[@]} -eq 0 ]; then
+        print_message $RED "❌ Tidak ada WiFi yang ditemukan!"
+        print_message $YELLOW "💡 Pastikan:"
+        print_message $YELLOW "   - Adapter WiFi sudah aktif"
+        print_message $YELLOW "   - Ada WiFi di sekitar Anda"
+        print_message $YELLOW "   - NetworkManager berjalan dengan baik"
         return 1
     fi
     
-    # Cek apakah WiFi memerlukan password
-    security=$(nmcli -t -f SECURITY device wifi list | grep -E "^.*:.*$ssid.*:" | head -1 | cut -d: -f2)
+    local index=1
+    declare -g wifi_ssids=()
+    declare -g wifi_securities=()
     
-    if [[ "$security" == *"WPA"* ]] || [[ "$security" == *"WEP"* ]]; then
-        print_message $YELLOW "Masukkan password WiFi:"
-        read -s password
-        echo ""
+    printf "%-4s %-25s %-12s %-8s %s\n" "No." "SSID" "Security" "Signal" "Status"
+    echo "================================================"
+    
+    # Array untuk mencegah duplikasi SSID
+    declare -A seen_ssids
+    
+    for wifi_entry in "${wifi_raw[@]}"; do
+        if [ -n "$wifi_entry" ]; then
+            IFS=: read -r ssid security signal <<< "$wifi_entry"
+            
+            # Skip jika SSID kosong atau sudah ada
+            if [ -n "$ssid" ] && [ "$ssid" != "--" ] && [ -z "${seen_ssids[$ssid]}" ]; then
+                seen_ssids["$ssid"]=1
+                wifi_ssids+=("$ssid")
+                wifi_securities+=("$security")
+                
+                # Format security untuk tampilan yang lebih baik
+                local security_display="$security"
+                if [ "$security" = "--" ] || [ -z "$security" ]; then
+                    security_display="Open"
+                fi
+                
+                # Format signal strength dengan icon
+                local signal_icon="📶"
+                if [ "$signal" -gt 70 ]; then
+                    signal_icon="📶"  # Strong signal
+                elif [ "$signal" -gt 50 ]; then
+                    signal_icon="📶"  # Medium signal  
+                elif [ "$signal" -gt 30 ]; then
+                    signal_icon="📶"  # Weak signal
+                else
+                    signal_icon="📱"  # Very weak signal
+                fi
+                
+                printf "%-4s %-25s %-12s %-8s %s\n" "$index" "$ssid" "$security_display" "$signal%" "$signal_icon"
+                ((index++))
+                
+                # Limit maksimum 20 WiFi untuk menghindari list yang terlalu panjang
+                if [ $index -gt 20 ]; then
+                    break
+                fi
+            fi
+        fi
+    done
+    echo "================================================"
+    print_message $BLUE "💡 Ditemukan ${#wifi_ssids[@]} WiFi yang tersedia"
+    
+    return 0
+}
+
+# Fungsi untuk koneksi WiFi dengan sistem pemilihan nomor
+connect_wifi() {
+    echo ""
+    
+    # Tampilkan daftar WiFi untuk dipilih
+    if ! show_wifi_selection; then
+        return 1
+    fi
+    
+    echo ""
+    
+    # Loop untuk validasi input nomor
+    while true; do
+        print_message $YELLOW "Pilih nomor WiFi yang ingin dihubungkan (1-${#wifi_ssids[@]}):"
+        read -r choice
         
-        if [ -z "$password" ]; then
-            print_message $RED "Password tidak boleh kosong!"
+        # Validasi input
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#wifi_ssids[@]}" ]; then
+            break
+        else
+            print_message $RED "❌ Pilihan tidak valid! Masukkan nomor antara 1-${#wifi_ssids[@]}"
+            echo ""
+        fi
+    done
+    
+    # Ambil SSID dan security berdasarkan pilihan
+    local array_index=$((choice - 1))
+    local selected_ssid="${wifi_ssids[$array_index]}"
+    local selected_security="${wifi_securities[$array_index]}"
+    
+    print_message $GREEN "✓ WiFi yang dipilih: $selected_ssid"
+    
+    # Cek apakah WiFi memerlukan password
+    if [[ "$selected_security" == *"WPA"* ]] || [[ "$selected_security" == *"WEP"* ]] || [[ "$selected_security" != "--" ]]; then
+        print_message $YELLOW "🔒 WiFi ini memerlukan password."
+        
+        # Loop untuk input password
+        while true; do
+            print_message $YELLOW "Masukkan password WiFi:"
+            read -s password
+            echo ""
+            
+            if [ -n "$password" ]; then
+                break
+            else
+                print_message $RED "❌ Password tidak boleh kosong! Silakan coba lagi."
+                echo ""
+            fi
+        done
+        
+        print_message $BLUE "🔄 Menghubungkan ke WiFi: $selected_ssid"
+        print_message $YELLOW "Menjalankan: nmcli device wifi connect \"$selected_ssid\" password \"***\""
+        
+        if nmcli device wifi connect "$selected_ssid" password "$password" 2>/dev/null; then
+            print_message $GREEN "✅ Berhasil terhubung ke WiFi: $selected_ssid"
+            show_connection_info
+        else
+            print_message $RED "❌ Gagal terhubung ke WiFi: $selected_ssid"
+            print_message $YELLOW "💡 Kemungkinan penyebab:"
+            print_message $YELLOW "   - Password salah"
+            print_message $YELLOW "   - Signal terlalu lemah"
+            print_message $YELLOW "   - WiFi sudah penuh"
+            print_message $YELLOW "   - Masalah konfigurasi router"
             return 1
         fi
-        
-        print_message $BLUE "Menghubungkan ke WiFi: $ssid"
-        print_message $YELLOW "Menjalankan: nmcli device wifi connect \"$ssid\" password \"***\""
-        
-        if nmcli device wifi connect "$ssid" password "$password"; then
-            print_message $GREEN "✓ Berhasil terhubung ke WiFi: $ssid"
-            show_connection_info
-        else
-            print_message $RED "✗ Gagal terhubung ke WiFi: $ssid"
-            print_message $YELLOW "Pastikan nama WiFi dan password benar."
-        fi
     else
-        print_message $BLUE "Menghubungkan ke WiFi terbuka: $ssid"
-        print_message $YELLOW "Menjalankan: nmcli device wifi connect \"$ssid\""
+        print_message $BLUE "🔄 Menghubungkan ke WiFi terbuka: $selected_ssid"
+        print_message $YELLOW "Menjalankan: nmcli device wifi connect \"$selected_ssid\""
         
-        if nmcli device wifi connect "$ssid"; then
-            print_message $GREEN "✓ Berhasil terhubung ke WiFi: $ssid"
+        if nmcli device wifi connect "$selected_ssid" 2>/dev/null; then
+            print_message $GREEN "✅ Berhasil terhubung ke WiFi: $selected_ssid"
             show_connection_info
         else
-            print_message $RED "✗ Gagal terhubung ke WiFi: $ssid"
+            print_message $RED "❌ Gagal terhubung ke WiFi: $selected_ssid"
+            print_message $YELLOW "💡 Kemungkinan penyebab:"
+            print_message $YELLOW "   - Signal terlalu lemah"
+            print_message $YELLOW "   - WiFi sudah penuh"
+            print_message $YELLOW "   - Masalah konfigurasi router"
+            return 1
         fi
     fi
 }
@@ -184,14 +297,14 @@ main_connect_process() {
     
     echo ""
     
-    # 2. Tampilkan daftar WiFi
-    if confirm_action "Apakah ingin melihat daftar WiFi yang tersedia?"; then
-        show_wifi_list
-    fi
+    # 2. Tidak perlu tampilkan daftar WiFi dulu, langsung ke koneksi
+    # if confirm_action "Apakah ingin melihat daftar WiFi yang tersedia terlebih dahulu?"; then
+    #     show_wifi_list
+    # fi
     
-    echo ""
+    # echo ""
     
-    # 3. Koneksi WiFi
+    # 3. Koneksi WiFi (dengan sistem pemilihan nomor)
     if confirm_action "Apakah ingin menghubungkan ke WiFi?"; then
         connect_wifi
     else
@@ -205,26 +318,87 @@ main_connect_process() {
 # Fungsi untuk memutuskan koneksi WiFi
 disconnect_wifi() {
     show_header
-    print_message $BLUE "Koneksi WiFi saat ini:"
-    echo "================================================"
     
-    # Tampilkan koneksi aktif
-    active_connections=$(nmcli -t -f NAME,TYPE connection show --active | grep wifi)
+    # Cek apakah ada koneksi WiFi aktif
+    print_message $BLUE "Mengecek koneksi WiFi saat ini..."
     
-    if [ -z "$active_connections" ]; then
-        print_message $YELLOW "Tidak ada koneksi WiFi yang aktif."
+    # Metode deteksi yang lebih akurat
+    # 1. Cek koneksi aktif dengan tipe wifi
+    active_wifi_info=$(nmcli -t -f NAME,TYPE,DEVICE connection show --active | grep ":wifi:")
+    
+    # 2. Cek device WiFi yang connected
+    active_device_info=$(nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status | grep "wifi:connected")
+    
+    # 3. Cek WiFi yang sedang terhubung dengan cara lain
+    current_wifi=$(nmcli -t -f ACTIVE,SSID,SIGNAL device wifi | grep "^yes:")
+    
+    if [ -z "$active_wifi_info" ] && [ -z "$active_device_info" ] && [ -z "$current_wifi" ]; then
+        print_message $YELLOW "Tidak ada koneksi WiFi yang aktif saat ini."
+        echo ""
+        print_message $BLUE "Status perangkat WiFi:"
+        nmcli device status | grep wifi || print_message $YELLOW "Tidak ada perangkat WiFi yang terdeteksi"
+        echo ""
+        print_message $BLUE "Semua koneksi aktif:"
+        nmcli connection show --active
         return 0
     fi
     
-    echo "$active_connections" | while IFS=: read -r name type; do
-        echo "- $name"
-    done
+    print_message $BLUE "Koneksi WiFi aktif saat ini:"
+    echo "================================================"
+    
+    # Tampilkan informasi detail koneksi aktif
+    if [ -n "$active_wifi_info" ]; then
+        echo "KONEKSI AKTIF:"
+        while IFS=: read -r name type device; do
+            print_message $GREEN "- Nama Koneksi: $name"
+            print_message $GREEN "- Perangkat: $device"
+            print_message $GREEN "- Tipe: $type"
+            
+            # Ambil informasi tambahan seperti IP dan SSID
+            connection_details=$(nmcli connection show "$name" 2>/dev/null | grep -E "(IP4.ADDRESS|802-11-wireless.ssid|ipv4.addresses)")
+            if [ -n "$connection_details" ]; then
+                echo "$connection_details" | while read -r line; do
+                    print_message $BLUE "  $line"
+                done
+            fi
+            echo ""
+        done <<< "$active_wifi_info"
+    fi
+    
+    # Tampilkan informasi WiFi yang sedang terhubung
+    if [ -n "$current_wifi" ]; then
+        echo "DETAIL WIFI AKTIF:"
+        while IFS=: read -r active ssid signal rest; do
+            print_message $GREEN "- SSID: $ssid"
+            print_message $GREEN "- Kekuatan Signal: $signal%"
+        done <<< "$current_wifi"
+        echo ""
+    fi
+    
+    # Tampilkan status perangkat WiFi
+    if [ -n "$active_device_info" ]; then
+        echo "STATUS PERANGKAT WiFi:"
+        while IFS=: read -r device type state connection; do
+            print_message $BLUE "- Perangkat: $device ($type)"
+            print_message $BLUE "- Status: $state"
+            print_message $BLUE "- Koneksi: $connection"
+        done <<< "$active_device_info"
+    fi
+    
     echo "================================================"
     
     if confirm_action "Apakah ingin memutuskan semua koneksi WiFi?"; then
         print_message $BLUE "Memutuskan koneksi WiFi..."
         
-        # Matikan WiFi
+        # Metode yang lebih baik untuk memutuskan koneksi
+        if [ -n "$active_wifi_info" ]; then
+            while IFS=: read -r name type device; do
+                print_message $YELLOW "Menjalankan: nmcli connection down \"$name\""
+                nmcli connection down "$name"
+            done <<< "$active_wifi_info"
+        fi
+        
+        # Alternatif dengan mematikan dan menyalakan WiFi
         print_message $YELLOW "Menjalankan: nmcli radio wifi off"
         nmcli radio wifi off
         sleep 2

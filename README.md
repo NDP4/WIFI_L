@@ -20,12 +20,19 @@ Aplikasi sederhana berbasis bash script untuk mempermudah koneksi WiFi di Linux 
 - Cek status NetworkManager otomatis
 - Aktifkan NetworkManager jika diperlukan
 - Scan dan tampilkan daftar WiFi tersedia
+- **🆕 SISTEM PEMILIHAN WiFi DENGAN NOMOR** _(Tidak perlu mengetik SSID)_
+- **🆕 TAMPILAN DAFTAR WiFi YANG RAPI** _(Diurutkan berdasarkan kekuatan sinyal)_
+- **🆕 VALIDASI INPUT YANG ROBUST** _(Loop validasi untuk input yang salah)_
+- **🆕 TAMPILAN DENGAN EMOJI DAN ICON** _(User experience yang lebih baik)_
 - Koneksi ke WiFi dengan atau tanpa password
 - Interface interaktif dengan konfirmasi untuk setiap langkah
 - Tampilkan informasi koneksi setelah berhasil terhubung
 
 ### ✅ putuswifi
 
+- **🆕 DETEKSI KONEKSI WiFi YANG AKURAT** _(Menggunakan 3 metode deteksi)_
+- **🆕 INFORMASI DETAIL KONEKSI AKTIF** _(SSID, perangkat, IP, signal strength)_
+- **🆕 TAMPILAN INFORMASI YANG LENGKAP** _(Status perangkat dan koneksi detail)_
 - Putuskan koneksi WiFi aktif
 - Kelola profil WiFi yang tersimpan
 - Hapus profil WiFi tertentu
@@ -33,9 +40,11 @@ Aplikasi sederhana berbasis bash script untuk mempermudah koneksi WiFi di Linux 
 
 ### ✅ Fitur Tambahan
 
-- Output berwarna untuk kemudahan reading
-- Validasi input pengguna
-- Error handling yang baik
+- **🆕 OUTPUT BERWARNA DAN EMOJI** untuk kemudahan reading
+- **🆕 ERROR HANDLING YANG INFORMATIF** dengan saran solusi
+- **🆕 LOOP VALIDASI INPUT** untuk mencegah error input
+- **🆕 PENCEGAHAN DUPLIKASI SSID** dalam daftar WiFi
+- Validasi input pengguna yang ketat
 - Help/bantuan terintegrasi
 
 ## 🔧 Persyaratan Sistem
@@ -115,10 +124,10 @@ putuswifi --help
 2. **Ikuti alur interaktif**:
    - Pilih apakah ingin melihat status NetworkManager
    - Konfirmasi untuk mengaktifkan NetworkManager (jika diperlukan)
-   - Pilih apakah ingin melihat daftar WiFi tersedia
+   - Pilih apakah ingin melihat daftar WiFi tersedia (opsional preview)
    - Pilih untuk melakukan koneksi WiFi
-   - Masukkan nama WiFi (SSID)
-   - Masukkan password (jika diperlukan)
+   - **Pilih nomor WiFi dari daftar yang tersedia** (sistem baru)
+   - Masukkan password (jika WiFi memerlukan autentikasi)
 
 ### Putus Koneksi WiFi (putuswifi)
 
@@ -129,7 +138,7 @@ putuswifi --help
    ```
 
 2. **Ikuti alur interaktif**:
-   - Lihat koneksi WiFi yang aktif
+   - **Lihat informasi detail koneksi WiFi yang aktif** (fitur baru)
    - Konfirmasi untuk memutuskan koneksi
    - Pilih untuk mengelola profil WiFi tersimpan
    - Hapus profil WiFi tertentu (opsional)
@@ -145,7 +154,7 @@ putuswifi --help
 
 ## 💡 Contoh Penggunaan
 
-### Skenario 1: Koneksi WiFi Pertama Kali
+### Skenario 1: Koneksi WiFi dengan Sistem Pemilihan Nomor (Fitur Baru)
 
 ```bash
 $ konekwifi
@@ -162,21 +171,26 @@ Mengecek status NetworkManager...
 
 ✓ NetworkManager sudah aktif
 
-Apakah ingin melihat daftar WiFi yang tersedia? (y/n): y
+Apakah ingin melihat daftar WiFi yang tersedia terlebih dahulu? (y/n): n
+
+Apakah ingin menghubungkan ke WiFi? (y/n): y
+
 Memindai WiFi yang tersedia...
 Menjalankan: nmcli device wifi rescan
 Daftar WiFi yang tersedia:
 ================================================
-*  SSID           MODE   CHAN  RATE        SIGNAL  BARS  SECURITY
-   MyWiFi-5G      Infra  149   540 Mbit/s  85      ▂▄▆█  WPA2
-   MyWiFi-2.4G    Infra  6     130 Mbit/s  82      ▂▄▆█  WPA2
-   Guest-WiFi     Infra  1     54 Mbit/s   45      ▂▄__  --
+No.  SSID                          Security     Signal
+================================================
+1    MyWiFi-5G                     WPA2         85%
+2    MyWiFi-2.4G                   WPA2         82%
+3    Office-WiFi                   WPA2         70%
+4    Guest-Network                 --           45%
+5    Neighbor-WiFi                 WPA2         38%
 ================================================
 
-Apakah ingin menghubungkan ke WiFi? (y/n): y
-
-Masukkan nama WiFi (SSID) yang ingin dihubungkan:
-MyWiFi-5G
+Pilih nomor WiFi yang ingin dihubungkan (1-5): 1
+WiFi yang dipilih: MyWiFi-5G
+WiFi ini memerlukan password.
 Masukkan password WiFi:
 [password tersembunyi]
 
@@ -196,7 +210,7 @@ wlan0   wifi      connected     MyWiFi-5G
 Proses selesai!
 ```
 
-### Skenario 2: Putus Koneksi WiFi
+### Skenario 2: Putus Koneksi WiFi dengan Informasi Detail (Fitur Baru)
 
 ```bash
 $ putuswifi
@@ -205,12 +219,26 @@ $ putuswifi
            WiFi Connection Manager
 ================================================
 
-Koneksi WiFi saat ini:
+Mengecek koneksi WiFi saat ini...
+Koneksi WiFi aktif saat ini:
 ================================================
-- MyWiFi-5G
+KONEKSI AKTIF:
+- Nama Koneksi: MyWiFi-5G
+- Perangkat: wlan0
+- Tipe: wifi
+  IP4.ADDRESS[1]:                         192.168.1.150/24
+  802-11-wireless.ssid:                   MyWiFi-5G
+  Signal: 85%
+
+STATUS PERANGKAT:
+- Perangkat: wlan0 (wifi)
+- Status: connected
+- Koneksi: MyWiFi-5G
 ================================================
+
 Apakah ingin memutuskan semua koneksi WiFi? (y/n): y
 Memutuskan koneksi WiFi...
+Menjalankan: nmcli connection down "MyWiFi-5G"
 Menjalankan: nmcli radio wifi off
 Menjalankan: nmcli radio wifi on
 ✓ Koneksi WiFi telah diputuskan
