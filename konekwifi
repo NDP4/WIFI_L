@@ -103,7 +103,7 @@ show_wifi_selection() {
     
     # Simpan daftar WiFi ke dalam array dengan format yang lebih baik
     # Gunakan nmcli dengan output yang lebih detail dan sudah diurutkan
-    mapfile -t wifi_raw < <(nmcli -t -f SSID,SECURITY,SIGNAL device wifi list --rescan-ssid no | grep -v '^--' | grep -v '^$' | sort -t: -k3 -nr)
+    mapfile -t wifi_raw < <(nmcli -t -f SSID,SECURITY,SIGNAL device wifi list | grep -v '^--' | grep -v '^$' | sort -t: -k3 -nr)
     
     if [ ${#wifi_raw[@]} -eq 0 ]; then
         print_message $RED "❌ Tidak ada WiFi yang ditemukan!"
@@ -316,105 +316,65 @@ main_connect_process() {
 }
 
 # Fungsi untuk memutuskan koneksi WiFi
+# Diperbarui agar lebih mudah dan sesuai kebiasaan user
+
 disconnect_wifi() {
     show_header
-    
-    # Cek apakah ada koneksi WiFi aktif
-    print_message $BLUE "Mengecek koneksi WiFi saat ini..."
-    
-    # Metode deteksi yang lebih akurat
-    # 1. Cek koneksi aktif dengan tipe wifi
-    active_wifi_info=$(nmcli -t -f NAME,TYPE,DEVICE connection show --active | grep ":wifi:")
-    
-    # 2. Cek device WiFi yang connected
-    active_device_info=$(nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status | grep "wifi:connected")
-    
-    # 3. Cek WiFi yang sedang terhubung dengan cara lain
-    current_wifi=$(nmcli -t -f ACTIVE,SSID,SIGNAL device wifi | grep "^yes:")
-    
-    if [ -z "$active_wifi_info" ] && [ -z "$active_device_info" ] && [ -z "$current_wifi" ]; then
-        print_message $YELLOW "Tidak ada koneksi WiFi yang aktif saat ini."
-        echo ""
-        print_message $BLUE "Status perangkat WiFi:"
-        nmcli device status | grep wifi || print_message $YELLOW "Tidak ada perangkat WiFi yang terdeteksi"
-        echo ""
-        print_message $BLUE "Semua koneksi aktif:"
-        nmcli connection show --active
-        return 0
-    fi
-    
-    print_message $BLUE "Koneksi WiFi aktif saat ini:"
+    print_message $BLUE "Mengecek perangkat WiFi yang tersedia..."
     echo "================================================"
-    
-    # Tampilkan informasi detail koneksi aktif
-    if [ -n "$active_wifi_info" ]; then
-        echo "KONEKSI AKTIF:"
-        while IFS=: read -r name type device; do
-            print_message $GREEN "- Nama Koneksi: $name"
-            print_message $GREEN "- Perangkat: $device"
-            print_message $GREEN "- Tipe: $type"
-            
-            # Ambil informasi tambahan seperti IP dan SSID
-            connection_details=$(nmcli connection show "$name" 2>/dev/null | grep -E "(IP4.ADDRESS|802-11-wireless.ssid|ipv4.addresses)")
-            if [ -n "$connection_details" ]; then
-                echo "$connection_details" | while read -r line; do
-                    print_message $BLUE "  $line"
-                done
-            fi
-            echo ""
-        done <<< "$active_wifi_info"
-    fi
-    
-    # Tampilkan informasi WiFi yang sedang terhubung
-    if [ -n "$current_wifi" ]; then
-        echo "DETAIL WIFI AKTIF:"
-        while IFS=: read -r active ssid signal rest; do
-            print_message $GREEN "- SSID: $ssid"
-            print_message $GREEN "- Kekuatan Signal: $signal%"
-        done <<< "$current_wifi"
-        echo ""
-    fi
-    
-    # Tampilkan status perangkat WiFi
-    if [ -n "$active_device_info" ]; then
-        echo "STATUS PERANGKAT WiFi:"
-        while IFS=: read -r device type state connection; do
-            print_message $BLUE "- Perangkat: $device ($type)"
-            print_message $BLUE "- Status: $state"
-            print_message $BLUE "- Koneksi: $connection"
-        done <<< "$active_device_info"
-    fi
-    
+    nmcli device | grep wifi || print_message $YELLOW "Tidak ada perangkat WiFi yang terdeteksi"
     echo "================================================"
-    
-    if confirm_action "Apakah ingin memutuskan semua koneksi WiFi?"; then
-        print_message $BLUE "Memutuskan koneksi WiFi..."
-        
-        # Metode yang lebih baik untuk memutuskan koneksi
-        if [ -n "$active_wifi_info" ]; then
-            while IFS=: read -r name type device; do
-                print_message $YELLOW "Menjalankan: nmcli connection down \"$name\""
-                nmcli connection down "$name"
-            done <<< "$active_wifi_info"
-        fi
-        
-        # Alternatif dengan mematikan dan menyalakan WiFi
-        print_message $YELLOW "Menjalankan: nmcli radio wifi off"
-        nmcli radio wifi off
-        sleep 2
-        
-        print_message $YELLOW "Menjalankan: nmcli radio wifi on"
-        nmcli radio wifi on
-        sleep 2
-        
-        print_message $GREEN "✓ Koneksi WiFi telah diputuskan"
+
+    # Pilih interface WiFi
+    wifi_ifaces=( $(nmcli -t -f DEVICE,TYPE device | grep ":wifi" | cut -d: -f1) )
+    if [ ${#wifi_ifaces[@]} -eq 0 ]; then
+        print_message $RED "Tidak ada interface WiFi yang terdeteksi!"
+        return 1
     fi
-    
+
+    print_message $YELLOW "Pilih interface WiFi yang ingin diputuskan (atau tekan Enter untuk lewati):"
+    for i in "${!wifi_ifaces[@]}"; do
+        echo "  $((i+1)). ${wifi_ifaces[$i]}"
+    done
+    read -p "Nomor interface [1-${#wifi_ifaces[@]}] (Enter=lewati): " iface_choice
+    if [[ "$iface_choice" =~ ^[0-9]+$ ]] && [ "$iface_choice" -ge 1 ] && [ "$iface_choice" -le ${#wifi_ifaces[@]} ]; then
+        iface_sel="${wifi_ifaces[$((iface_choice-1))]}"
+        print_message $YELLOW "Menjalankan: nmcli device disconnect $iface_sel"
+        nmcli device disconnect "$iface_sel"
+        print_message $GREEN "✓ Interface $iface_sel berhasil diputuskan."
+    fi
+
     echo ""
-    
-    if confirm_action "Apakah ingin menghapus profil WiFi yang tersimpan?"; then
-        show_saved_connections
+    print_message $BLUE "Daftar koneksi WiFi yang aktif dan tersimpan:"
+    echo "================================================"
+    nmcli connection show --active | grep wifi
+    nmcli connection show | grep wifi
+    echo "================================================"
+
+    if confirm_action "Apakah ingin memutuskan koneksi berdasarkan nama (profile)?"; then
+        print_message $YELLOW "Masukkan nama koneksi WiFi yang ingin diputuskan (lihat daftar di atas):"
+        read -r conn_name
+        if [ -n "$conn_name" ]; then
+            print_message $YELLOW "Menjalankan: nmcli connection down \"$conn_name\""
+            nmcli connection down "$conn_name"
+            print_message $GREEN "✓ Koneksi $conn_name berhasil diputuskan."
+        fi
     fi
+
+    if confirm_action "Apakah ingin menghapus profil WiFi (logout permanen)?"; then
+        print_message $YELLOW "Masukkan nama koneksi WiFi yang ingin dihapus (lihat daftar di atas):"
+        read -r del_name
+        if [ -n "$del_name" ]; then
+            print_message $YELLOW "Menjalankan: nmcli connection delete \"$del_name\""
+            nmcli connection delete "$del_name"
+            print_message $GREEN "✓ Profil $del_name berhasil dihapus."
+        fi
+    fi
+
+    echo ""
+    print_message $BLUE "Status koneksi WiFi saat ini:"
+    nmcli device status
+    echo "================================================"
 }
 
 # Fungsi untuk menampilkan dan menghapus koneksi tersimpan
