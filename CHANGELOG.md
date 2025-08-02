@@ -47,7 +47,7 @@
 - ✅ Signal strength sorting dan display yang lebih baik
 - ✅ Duplicate SSID prevention
 
-## [1.0.0] - 2024-01-01
+## [1.0.0] - 2025-08-01
 
 ### Added
 

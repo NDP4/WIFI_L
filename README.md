@@ -167,7 +167,7 @@ Apakah ingin melihat status NetworkManager? (y/n): y
 Mengecek status NetworkManager...
 ● NetworkManager.service - Network Manager
    Loaded: loaded (/lib/systemd/system/NetworkManager.service; enabled; vendor preset: enabled)
-   Active: active (running) since Mon 2024-01-01 10:00:00 WIB; 1h 30min ago
+   Active: active (running) since Mon 2025-01-01 10:00:00 WIB; 1h 30min ago
 
 ✓ NetworkManager sudah aktif
 
