@@ -1,0 +1,339 @@
+#!/bin/bash
+
+# WiFi Connection Manager
+# Script untuk mempermudah koneksi WiFi menggunakan nmcli
+# Author: Your Name
+# Version: 1.0
+
+# Warna untuk output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Fungsi untuk menampilkan header
+show_header() {
+    clear
+    echo -e "${BLUE}================================================${NC}"
+    echo -e "${BLUE}           WiFi Connection Manager              ${NC}"
+    echo -e "${BLUE}================================================${NC}"
+    echo ""
+}
+
+# Fungsi untuk menampilkan pesan dengan warna
+print_message() {
+    local color=$1
+    local message=$2
+    echo -e "${color}${message}${NC}"
+}
+
+# Fungsi untuk konfirmasi ya/tidak
+confirm_action() {
+    local prompt=$1
+    while true; do
+        echo -e "${YELLOW}${prompt} (y/n): ${NC}"
+        read -r response
+        case $response in
+            [Yy]* ) return 0;;
+            [Nn]* ) return 1;;
+            * ) print_message $RED "Silakan jawab dengan y atau n.";;
+        esac
+    done
+}
+
+# Fungsi untuk cek status NetworkManager
+check_networkmanager_status() {
+    print_message $BLUE "Mengecek status NetworkManager..."
+    sudo systemctl status NetworkManager --no-pager | head -10
+    echo ""
+    
+    if systemctl is-active --quiet NetworkManager; then
+        print_message $GREEN "✓ NetworkManager sudah aktif"
+        return 0
+    else
+        print_message $RED "✗ NetworkManager tidak aktif"
+        return 1
+    fi
+}
+
+# Fungsi untuk mengaktifkan NetworkManager
+enable_networkmanager() {
+    print_message $BLUE "Mengaktifkan NetworkManager..."
+    
+    print_message $YELLOW "Menjalankan: sudo systemctl enable NetworkManager"
+    sudo systemctl enable NetworkManager
+    
+    print_message $YELLOW "Menjalankan: sudo systemctl start NetworkManager"
+    sudo systemctl start NetworkManager
+    
+    sleep 2
+    
+    if systemctl is-active --quiet NetworkManager; then
+        print_message $GREEN "✓ NetworkManager berhasil diaktifkan"
+        return 0
+    else
+        print_message $RED "✗ Gagal mengaktifkan NetworkManager"
+        return 1
+    fi
+}
+
+# Fungsi untuk menampilkan daftar WiFi
+show_wifi_list() {
+    print_message $BLUE "Memindai WiFi yang tersedia..."
+    print_message $YELLOW "Menjalankan: nmcli device wifi rescan"
+    nmcli device wifi rescan
+    sleep 3
+    
+    print_message $BLUE "Daftar WiFi yang tersedia:"
+    echo "================================================"
+    nmcli device wifi list
+    echo "================================================"
+}
+
+# Fungsi untuk koneksi WiFi
+connect_wifi() {
+    echo ""
+    print_message $YELLOW "Masukkan nama WiFi (SSID) yang ingin dihubungkan:"
+    read -r ssid
+    
+    if [ -z "$ssid" ]; then
+        print_message $RED "SSID tidak boleh kosong!"
+        return 1
+    fi
+    
+    # Cek apakah WiFi memerlukan password
+    security=$(nmcli -t -f SECURITY device wifi list | grep -E "^.*:.*$ssid.*:" | head -1 | cut -d: -f2)
+    
+    if [[ "$security" == *"WPA"* ]] || [[ "$security" == *"WEP"* ]]; then
+        print_message $YELLOW "Masukkan password WiFi:"
+        read -s password
+        echo ""
+        
+        if [ -z "$password" ]; then
+            print_message $RED "Password tidak boleh kosong!"
+            return 1
+        fi
+        
+        print_message $BLUE "Menghubungkan ke WiFi: $ssid"
+        print_message $YELLOW "Menjalankan: nmcli device wifi connect \"$ssid\" password \"***\""
+        
+        if nmcli device wifi connect "$ssid" password "$password"; then
+            print_message $GREEN "✓ Berhasil terhubung ke WiFi: $ssid"
+            show_connection_info
+        else
+            print_message $RED "✗ Gagal terhubung ke WiFi: $ssid"
+            print_message $YELLOW "Pastikan nama WiFi dan password benar."
+        fi
+    else
+        print_message $BLUE "Menghubungkan ke WiFi terbuka: $ssid"
+        print_message $YELLOW "Menjalankan: nmcli device wifi connect \"$ssid\""
+        
+        if nmcli device wifi connect "$ssid"; then
+            print_message $GREEN "✓ Berhasil terhubung ke WiFi: $ssid"
+            show_connection_info
+        else
+            print_message $RED "✗ Gagal terhubung ke WiFi: $ssid"
+        fi
+    fi
+}
+
+# Fungsi untuk menampilkan info koneksi
+show_connection_info() {
+    echo ""
+    print_message $BLUE "Informasi koneksi saat ini:"
+    echo "================================================"
+    nmcli connection show --active
+    echo ""
+    nmcli device status
+    echo "================================================"
+}
+
+# Fungsi utama untuk koneksi WiFi
+main_connect_process() {
+    show_header
+    
+    # 1. Cek status NetworkManager
+    if confirm_action "Apakah ingin melihat status NetworkManager?"; then
+        if ! check_networkmanager_status; then
+            if confirm_action "NetworkManager tidak aktif. Apakah ingin mengaktifkannya?"; then
+                if ! enable_networkmanager; then
+                    print_message $RED "Gagal mengaktifkan NetworkManager. Keluar dari program."
+                    exit 1
+                fi
+            else
+                print_message $YELLOW "NetworkManager perlu diaktifkan untuk melanjutkan."
+                exit 1
+            fi
+        fi
+    else
+        # Langsung cek tanpa menampilkan status
+        if ! systemctl is-active --quiet NetworkManager; then
+            print_message $RED "NetworkManager tidak aktif!"
+            if confirm_action "Apakah ingin mengaktifkannya?"; then
+                if ! enable_networkmanager; then
+                    print_message $RED "Gagal mengaktifkan NetworkManager. Keluar dari program."
+                    exit 1
+                fi
+            else
+                print_message $YELLOW "NetworkManager perlu diaktifkan untuk melanjutkan."
+                exit 1
+            fi
+        fi
+    fi
+    
+    echo ""
+    
+    # 2. Tampilkan daftar WiFi
+    if confirm_action "Apakah ingin melihat daftar WiFi yang tersedia?"; then
+        show_wifi_list
+    fi
+    
+    echo ""
+    
+    # 3. Koneksi WiFi
+    if confirm_action "Apakah ingin menghubungkan ke WiFi?"; then
+        connect_wifi
+    else
+        print_message $YELLOW "Proses koneksi dibatalkan."
+    fi
+    
+    echo ""
+    print_message $GREEN "Proses selesai!"
+}
+
+# Fungsi untuk memutuskan koneksi WiFi
+disconnect_wifi() {
+    show_header
+    print_message $BLUE "Koneksi WiFi saat ini:"
+    echo "================================================"
+    
+    # Tampilkan koneksi aktif
+    active_connections=$(nmcli -t -f NAME,TYPE connection show --active | grep wifi)
+    
+    if [ -z "$active_connections" ]; then
+        print_message $YELLOW "Tidak ada koneksi WiFi yang aktif."
+        return 0
+    fi
+    
+    echo "$active_connections" | while IFS=: read -r name type; do
+        echo "- $name"
+    done
+    echo "================================================"
+    
+    if confirm_action "Apakah ingin memutuskan semua koneksi WiFi?"; then
+        print_message $BLUE "Memutuskan koneksi WiFi..."
+        
+        # Matikan WiFi
+        print_message $YELLOW "Menjalankan: nmcli radio wifi off"
+        nmcli radio wifi off
+        sleep 2
+        
+        print_message $YELLOW "Menjalankan: nmcli radio wifi on"
+        nmcli radio wifi on
+        sleep 2
+        
+        print_message $GREEN "✓ Koneksi WiFi telah diputuskan"
+    fi
+    
+    echo ""
+    
+    if confirm_action "Apakah ingin menghapus profil WiFi yang tersimpan?"; then
+        show_saved_connections
+    fi
+}
+
+# Fungsi untuk menampilkan dan menghapus koneksi tersimpan
+show_saved_connections() {
+    print_message $BLUE "Profil WiFi yang tersimpan:"
+    echo "================================================"
+    
+    saved_wifi=$(nmcli -t -f NAME,TYPE connection show | grep wifi)
+    
+    if [ -z "$saved_wifi" ]; then
+        print_message $YELLOW "Tidak ada profil WiFi yang tersimpan."
+        return 0
+    fi
+    
+    echo "$saved_wifi" | while IFS=: read -r name type; do
+        echo "- $name"
+    done
+    echo "================================================"
+    
+    if confirm_action "Apakah ingin menghapus profil WiFi tertentu?"; then
+        delete_wifi_profile
+    fi
+}
+
+# Fungsi untuk menghapus profil WiFi
+delete_wifi_profile() {
+    echo ""
+    print_message $YELLOW "Masukkan nama profil WiFi yang ingin dihapus:"
+    read -r profile_name
+    
+    if [ -z "$profile_name" ]; then
+        print_message $RED "Nama profil tidak boleh kosong!"
+        return 1
+    fi
+    
+    # Cek apakah profil ada
+    if nmcli connection show "$profile_name" &>/dev/null; then
+        print_message $BLUE "Menghapus profil WiFi: $profile_name"
+        print_message $YELLOW "Menjalankan: nmcli connection delete \"$profile_name\""
+        
+        if nmcli connection delete "$profile_name"; then
+            print_message $GREEN "✓ Profil WiFi '$profile_name' berhasil dihapus"
+        else
+            print_message $RED "✗ Gagal menghapus profil WiFi '$profile_name'"
+        fi
+    else
+        print_message $RED "Profil WiFi '$profile_name' tidak ditemukan!"
+        print_message $YELLOW "Gunakan nama profil yang tepat sesuai daftar di atas."
+    fi
+}
+
+# Fungsi untuk menampilkan bantuan
+show_help() {
+    show_header
+    print_message $BLUE "Panduan Penggunaan WiFi Connection Manager"
+    echo ""
+    echo "PERINTAH YANG TERSEDIA:"
+    echo "  konekwifi        - Proses lengkap koneksi WiFi"
+    echo "  putuswifi        - Memutuskan koneksi dan mengelola profil WiFi"
+    echo "  konekwifi --help - Menampilkan bantuan ini"
+    echo ""
+    echo "ALUR PROSES KONEKWIFI:"
+    echo "  1. Cek status NetworkManager"
+    echo "  2. Aktifkan NetworkManager (jika diperlukan)"
+    echo "  3. Tampilkan daftar WiFi tersedia"
+    echo "  4. Koneksi ke WiFi yang dipilih"
+    echo ""
+    echo "ALUR PROSES PUTUSWIFI:"
+    echo "  1. Tampilkan koneksi WiFi aktif"
+    echo "  2. Putuskan koneksi WiFi"
+    echo "  3. Kelola profil WiFi tersimpan"
+    echo ""
+    echo "PERSYARATAN:"
+    echo "  - nmcli (Network Manager Command Line)"
+    echo "  - sudo privileges untuk mengelola NetworkManager"
+    echo ""
+}
+
+# Main script logic
+case "${1:-}" in
+    --help|-h)
+        show_help
+        ;;
+    *)
+        # Deteksi nama script untuk menentukan fungsi
+        script_name=$(basename "$0")
+        case "$script_name" in
+            "putuswifi")
+                disconnect_wifi
+                ;;
+            "konekwifi"|*)
+                main_connect_process
+                ;;
+        esac
+        ;;
+esac
