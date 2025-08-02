@@ -1,0 +1,241 @@
+#!/bin/bash
+
+# WiFi Connection Manager - Putus Koneksi Enhanced Version
+# Author: GitHub Copilot  
+# Version: 3.0
+
+# Internationalization
+LANG_CODE="${LANG:-en_US}"
+case $LANG_CODE in
+    id_ID*|id*)
+        MSG_HEADER="WiFi Connection Manager"
+        MSG_CHECKING="Mengecek koneksi WiFi saat ini..."
+        MSG_NO_ACTIVE="Tidak ada koneksi WiFi yang aktif saat ini."
+        MSG_DEVICE_STATUS="Status perangkat WiFi:"
+        MSG_NO_DEVICE="Tidak ada perangkat WiFi yang terdeteksi"
+        MSG_ALL_CONNECTIONS="Semua koneksi aktif:"
+        MSG_ACTIVE_CONNECTION="KONEKSI AKTIF:"
+        MSG_WIFI_DETAIL="DETAIL WIFI AKTIF:"
+        MSG_DEVICE_WIFI="STATUS PERANGKAT WiFi:"
+        MSG_CONFIRM_DISCONNECT="Apakah ingin memutuskan koneksi berdasarkan interface (device)?"
+        MSG_CONFIRM_PROFILE="Apakah ingin memutuskan koneksi berdasarkan nama (profile)?"
+        MSG_CONFIRM_DELETE="Apakah ingin menghapus profil WiFi (logout permanen)?"
+        MSG_ENTER_INTERFACE="Masukkan nama interface WiFi (contoh: wlan0):"
+        MSG_ENTER_CONNECTION="Masukkan nama koneksi WiFi yang ingin diputuskan:"
+        MSG_ENTER_DELETE="Masukkan nama koneksi WiFi yang ingin dihapus:"
+        MSG_DISCONNECT_SUCCESS="berhasil diputuskan."
+        MSG_DELETE_SUCCESS="berhasil dihapus."
+        MSG_FINAL_STATUS="Status koneksi WiFi saat ini:"
+        MSG_NO_ROOT="Jangan jalankan script ini sebagai root!"
+        MSG_USE_NORMAL_USER="Gunakan user biasa untuk keamanan."
+        ;;
+    *)
+        MSG_HEADER="WiFi Connection Manager"
+        MSG_CHECKING="Checking current WiFi connections..."
+        MSG_NO_ACTIVE="No active WiFi connections found."
+        MSG_DEVICE_STATUS="WiFi device status:"
+        MSG_NO_DEVICE="No WiFi devices detected"
+        MSG_ALL_CONNECTIONS="All active connections:"
+        MSG_ACTIVE_CONNECTION="ACTIVE CONNECTION:"
+        MSG_WIFI_DETAIL="ACTIVE WIFI DETAIL:"
+        MSG_DEVICE_WIFI="WiFi DEVICE STATUS:"
+        MSG_CONFIRM_DISCONNECT="Do you want to disconnect by interface (device)?"
+        MSG_CONFIRM_PROFILE="Do you want to disconnect by connection name (profile)?"
+        MSG_CONFIRM_DELETE="Do you want to delete WiFi profile (permanent logout)?"
+        MSG_ENTER_INTERFACE="Enter WiFi interface name (example: wlan0):"
+        MSG_ENTER_CONNECTION="Enter WiFi connection name to disconnect:"
+        MSG_ENTER_DELETE="Enter WiFi connection name to delete:"
+        MSG_DISCONNECT_SUCCESS="successfully disconnected."
+        MSG_DELETE_SUCCESS="successfully deleted."
+        MSG_FINAL_STATUS="Current WiFi connection status:"
+        MSG_NO_ROOT="Don't run this script as root!"
+        MSG_USE_NORMAL_USER="Use regular user for security."
+        ;;
+esac
+
+# Warna untuk output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Security: Pastikan tidak dijalankan sebagai root kecuali untuk operasi NetworkManager
+if [[ $EUID -eq 0 ]] && [[ "$1" != "--allow-root" ]]; then
+    echo -e "${RED}❌ $MSG_NO_ROOT${NC}"
+    echo -e "${YELLOW}💡 $MSG_USE_NORMAL_USER${NC}"
+    exit 1
+fi
+
+# Fungsi untuk menampilkan header
+show_header() {
+    clear
+    echo -e "${BLUE}================================================${NC}"
+    echo -e "${BLUE}           $MSG_HEADER              ${NC}"
+    echo -e "${BLUE}================================================${NC}"
+    echo ""
+}
+
+# Fungsi untuk menampilkan pesan dengan warna
+print_message() {
+    local color=$1
+    local message=$2
+    echo -e "${color}${message}${NC}"
+}
+
+# Fungsi untuk konfirmasi ya/tidak
+confirm_action() {
+    local prompt=$1
+    while true; do
+        echo -e "${YELLOW}${prompt} (y/n): ${NC}"
+        read -r response
+        case $response in
+            [Yy]* ) return 0;;
+            [Nn]* ) return 1;;
+            * ) print_message $RED "Silakan jawab dengan y atau n.";;
+        esac
+    done
+}
+
+# Error handling dengan fallback
+check_dependencies() {
+    if ! command -v nmcli &> /dev/null; then
+        print_message $RED "❌ nmcli tidak ditemukan!"
+        print_message $YELLOW "💡 Install NetworkManager terlebih dahulu:"
+        print_message $YELLOW "   Ubuntu/Debian: sudo apt install network-manager"
+        print_message $YELLOW "   Fedora/RHEL:   sudo dnf install NetworkManager"
+        print_message $YELLOW "   Arch Linux:    sudo pacman -S networkmanager"
+        exit 1
+    fi
+}
+
+# Fungsi untuk memutuskan koneksi WiFi dengan metode yang diperbaiki
+disconnect_wifi() {
+    show_header
+    check_dependencies
+    
+    print_message $BLUE "$MSG_CHECKING"
+    
+    # Metode deteksi yang lebih akurat
+    # 1. Cek koneksi aktif dengan tipe wifi
+    active_wifi_info=$(nmcli -t -f NAME,TYPE,DEVICE connection show --active | grep ":wifi:")
+    
+    # 2. Cek device WiFi yang connected
+    active_device_info=$(nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status | grep "wifi:connected")
+    
+    # 3. Cek WiFi yang sedang terhubung dengan cara lain
+    current_wifi=$(nmcli -t -f ACTIVE,SSID,SIGNAL device wifi | grep "^yes:")
+    
+    if [ -z "$active_wifi_info" ] && [ -z "$active_device_info" ] && [ -z "$current_wifi" ]; then
+        print_message $YELLOW "$MSG_NO_ACTIVE"
+        echo ""
+        print_message $BLUE "$MSG_DEVICE_STATUS"
+        nmcli device status | grep wifi || print_message $YELLOW "$MSG_NO_DEVICE"
+        echo ""
+        print_message $BLUE "$MSG_ALL_CONNECTIONS"
+        nmcli connection show --active
+        return 0
+    fi
+    
+    # Tampilkan informasi perangkat WiFi yang tersedia
+    print_message $BLUE "Mengecek perangkat WiFi yang tersedia..."
+    echo "================================================"
+    nmcli device | grep wifi || print_message $YELLOW "$MSG_NO_DEVICE"
+    echo "================================================"
+    
+    # Opsi 1: Putus berdasarkan interface (device)
+    if confirm_action "$MSG_CONFIRM_DISCONNECT"; then
+        print_message $YELLOW "$MSG_ENTER_INTERFACE"
+        read -r interface_name
+        if [ -n "$interface_name" ]; then
+            print_message $YELLOW "Menjalankan: nmcli device disconnect $interface_name"
+            if nmcli device disconnect "$interface_name" 2>/dev/null; then
+                print_message $GREEN "✓ Interface $interface_name $MSG_DISCONNECT_SUCCESS"
+            else
+                print_message $RED "✗ Gagal memutuskan interface $interface_name"
+            fi
+        fi
+    fi
+    
+    # Tampilkan daftar koneksi WiFi yang aktif dan tersimpan
+    print_message $BLUE "Daftar koneksi WiFi yang aktif dan tersimpan:"
+    echo "================================================"
+    nmcli connection show --active | grep wifi
+    nmcli connection show | grep wifi
+    echo "================================================"
+
+    # Opsi 2: Putus berdasarkan nama koneksi (profile)
+    if confirm_action "$MSG_CONFIRM_PROFILE"; then
+        print_message $YELLOW "$MSG_ENTER_CONNECTION"
+        read -r conn_name
+        if [ -n "$conn_name" ]; then
+            print_message $YELLOW "Menjalankan: nmcli connection down \"$conn_name\""
+            if nmcli connection down "$conn_name" 2>/dev/null; then
+                print_message $GREEN "✓ Koneksi $conn_name $MSG_DISCONNECT_SUCCESS"
+            else
+                print_message $RED "✗ Gagal memutuskan koneksi $conn_name"
+            fi
+        fi
+    fi
+
+    # Opsi 3: Hapus profil WiFi (logout permanen)
+    if confirm_action "$MSG_CONFIRM_DELETE"; then
+        print_message $YELLOW "$MSG_ENTER_DELETE"
+        read -r del_name
+        if [ -n "$del_name" ]; then
+            print_message $YELLOW "Menjalankan: nmcli connection delete \"$del_name\""
+            if nmcli connection delete "$del_name" 2>/dev/null; then
+                print_message $GREEN "✓ Profil $del_name $MSG_DELETE_SUCCESS"
+            else
+                print_message $RED "✗ Gagal menghapus profil $del_name"
+            fi
+        fi
+    fi
+
+    echo ""
+    print_message $BLUE "$MSG_FINAL_STATUS"
+    echo "================================================"
+    nmcli device status
+    echo "================================================"
+}
+
+# Show help
+show_help() {
+    show_header
+    print_message $BLUE "Panduan Penggunaan WiFi Disconnect Manager"
+    echo ""
+    echo "PERINTAH YANG TERSEDIA:"
+    echo "  putuswifi-v3      - Proses putus koneksi WiFi (Enhanced)"
+    echo "  putuswifi-v3 --help - Menampilkan bantuan ini"
+    echo ""
+    echo "METODE PUTUS KONEKSI:"
+    echo "  1. Berdasarkan Interface (device) - nmcli device disconnect <interface>"
+    echo "  2. Berdasarkan Nama Koneksi (profile) - nmcli connection down <name>"
+    echo "  3. Hapus Profil WiFi - nmcli connection delete <name>"
+    echo ""
+    echo "FITUR KEAMANAN:"
+    echo "  ✅ Validasi mencegah running sebagai root"
+    echo "  ✅ Enhanced error handling dengan fallback"
+    echo "  ✅ Internationalization (ID/EN)"
+    echo ""
+    echo "CONTOH PENGGUNAAN:"
+    echo "  # Putus berdasarkan interface"
+    echo "  Interface: wlan0"
+    echo ""
+    echo "  # Putus berdasarkan nama koneksi"
+    echo "  Connection: MyWiFi-5G"
+    echo ""
+    echo "  # Hapus profil permanen"
+    echo "  Profile: OldWiFi"
+    echo ""
+}
+
+# Main script logic
+case "${1:-}" in
+    --help|-h)
+        show_help
+        ;;
+    *)
+        disconnect_wifi
+        ;;
+esac

@@ -1,0 +1,359 @@
+#!/bin/bash
+
+# WiFi Connection Manager - GUI Version
+# Script untuk mempermudah koneksi WiFi menggunakan nmcli dengan GUI (Zenity)
+# Author: GitHub Copilot
+# Version: 3.0
+
+# Warna untuk output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Internationalization
+LANG_CODE="${LANG:-en_US}"
+case $LANG_CODE in
+    id_ID*|id*)
+        MSG_TITLE="WiFi Connection Manager"
+        MSG_CONNECT="Koneksi WiFi"
+        MSG_DISCONNECT="Putus Koneksi WiFi"
+        MSG_SELECT_WIFI="Pilih WiFi"
+        MSG_PASSWORD="Masukkan Password WiFi"
+        MSG_SUCCESS="Berhasil terhubung ke"
+        MSG_FAILED="Gagal terhubung ke"
+        MSG_NO_WIFI="Tidak ada WiFi yang ditemukan"
+        MSG_SCANNING="Memindai WiFi..."
+        MSG_DISCONNECTED="Koneksi diputuskan"
+        MSG_ERROR="Error"
+        MSG_CANCEL="Dibatalkan"
+        ;;
+    *)
+        MSG_TITLE="WiFi Connection Manager"
+        MSG_CONNECT="Connect WiFi"
+        MSG_DISCONNECT="Disconnect WiFi"
+        MSG_SELECT_WIFI="Select WiFi"
+        MSG_PASSWORD="Enter WiFi Password"
+        MSG_SUCCESS="Successfully connected to"
+        MSG_FAILED="Failed to connect to"
+        MSG_NO_WIFI="No WiFi networks found"
+        MSG_SCANNING="Scanning WiFi..."
+        MSG_DISCONNECTED="Connection disconnected"
+        MSG_ERROR="Error"
+        MSG_CANCEL="Cancelled"
+        ;;
+esac
+
+# Cache configuration
+CACHE_DIR="$HOME/.cache/konekwifi"
+WIFI_CACHE_FILE="$CACHE_DIR/wifi_scan.cache"
+CACHE_TIMEOUT=30  # seconds
+
+# Security: Pastikan tidak dijalankan sebagai root
+if [[ $EUID -eq 0 ]]; then
+    zenity --error --text="Jangan jalankan script ini sebagai root!\nGunakan user biasa." --title="$MSG_ERROR"
+    exit 1
+fi
+
+# Cek dependencies
+check_dependencies() {
+    local missing_deps=()
+    
+    if ! command -v nmcli &> /dev/null; then
+        missing_deps+=("nmcli (NetworkManager)")
+    fi
+    
+    if ! command -v zenity &> /dev/null; then
+        missing_deps+=("zenity")
+    fi
+    
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        local deps_text=""
+        for dep in "${missing_deps[@]}"; do
+            deps_text="$deps_text\n- $dep"
+        done
+        
+        zenity --error --text="Dependencies missing:$deps_text\n\nPlease install them first." --title="$MSG_ERROR"
+        exit 1
+    fi
+}
+
+# Create cache directory
+mkdir -p "$CACHE_DIR"
+
+# Cache management
+is_cache_valid() {
+    if [ ! -f "$WIFI_CACHE_FILE" ]; then
+        return 1
+    fi
+    
+    local cache_time=$(stat -c %Y "$WIFI_CACHE_FILE" 2>/dev/null || echo 0)
+    local current_time=$(date +%s)
+    local age=$((current_time - cache_time))
+    
+    [ $age -lt $CACHE_TIMEOUT ]
+}
+
+# WiFi scanning with cache
+scan_wifi() {
+    if is_cache_valid; then
+        cat "$WIFI_CACHE_FILE"
+        return
+    fi
+    
+    # Show progress dialog
+    (
+        echo "# $MSG_SCANNING"
+        nmcli device wifi rescan 2>/dev/null
+        sleep 2
+        echo "# Processing results..."
+        nmcli -t -f SSID,SECURITY,SIGNAL device wifi list | \
+            grep -v '^--' | grep -v '^$' | sort -t: -k3 -nr > "$WIFI_CACHE_FILE"
+    ) | zenity --progress --pulsate --auto-close --title="$MSG_TITLE" --text="$MSG_SCANNING"
+    
+    cat "$WIFI_CACHE_FILE"
+}
+
+# GUI WiFi selection
+select_wifi_gui() {
+    local wifi_data=$(scan_wifi)
+    
+    if [ -z "$wifi_data" ]; then
+        zenity --info --text="$MSG_NO_WIFI" --title="$MSG_TITLE"
+        return 1
+    fi
+    
+    # Prepare data for zenity list
+    local zenity_data=""
+    local index=1
+    declare -g wifi_ssids=()
+    declare -g wifi_securities=()
+    declare -A seen_ssids
+    
+    while IFS=: read -r ssid security signal; do
+        if [ -n "$ssid" ] && [ "$ssid" != "--" ] && [ -z "${seen_ssids[$ssid]}" ]; then
+            seen_ssids["$ssid"]=1
+            wifi_ssids+=("$ssid")
+            wifi_securities+=("$security")
+            
+            # Format security display
+            local security_display="$security"
+            if [ "$security" = "--" ] || [ -z "$security" ]; then
+                security_display="Open"
+            fi
+            
+            # Signal strength indicator
+            local signal_icon="📶"
+            if [ "$signal" -gt 70 ]; then
+                signal_icon="📶📶📶"
+            elif [ "$signal" -gt 50 ]; then
+                signal_icon="📶📶"
+            elif [ "$signal" -gt 30 ]; then
+                signal_icon="📶"
+            else
+                signal_icon="📱"
+            fi
+            
+            zenity_data="$zenity_data$index\n$ssid\n$security_display\n$signal%\n$signal_icon\n"
+            ((index++))
+        fi
+    done <<< "$wifi_data"
+    
+    # Show WiFi selection dialog
+    local selection=$(echo -e "$zenity_data" | zenity --list \
+        --title="$MSG_SELECT_WIFI" \
+        --column="No." \
+        --column="SSID" \
+        --column="Security" \
+        --column="Signal" \
+        --column="Strength" \
+        --height=400 \
+        --width=600 \
+        --hide-column=1)
+    
+    if [ -z "$selection" ]; then
+        return 1
+    fi
+    
+    # Find selected SSID
+    local selected_index
+    for i in "${!wifi_ssids[@]}"; do
+        if [ "${wifi_ssids[$i]}" = "$selection" ]; then
+            selected_index=$i
+            break
+        fi
+    done
+    
+    if [ -z "$selected_index" ]; then
+        zenity --error --text="Invalid selection" --title="$MSG_ERROR"
+        return 1
+    fi
+    
+    echo "$selected_index"
+}
+
+# Connect to WiFi
+connect_wifi_gui() {
+    local wifi_index=$(select_wifi_gui)
+    
+    if [ -z "$wifi_index" ]; then
+        return 1
+    fi
+    
+    local selected_ssid="${wifi_ssids[$wifi_index]}"
+    local selected_security="${wifi_securities[$wifi_index]}"
+    
+    # Check if password is needed
+    if [[ "$selected_security" == *"WPA"* ]] || [[ "$selected_security" == *"WEP"* ]] || [[ "$selected_security" != "--" ]]; then
+        # Security: Get password securely without logging
+        local password
+        password=$(zenity --password --title="$MSG_PASSWORD for $selected_ssid")
+        
+        if [ -z "$password" ]; then
+            zenity --info --text="$MSG_CANCEL" --title="$MSG_TITLE"
+            return 1
+        fi
+        
+        # Connect with progress dialog
+        (
+            echo "# Connecting to $selected_ssid..."
+            # Security: Use process substitution to avoid password in command line
+            if echo "$password" | nmcli device wifi connect "$selected_ssid" password - 2>/dev/null; then
+                echo "# $MSG_SUCCESS $selected_ssid"
+            else
+                echo "# $MSG_FAILED $selected_ssid"
+                exit 1
+            fi
+        ) | zenity --progress --pulsate --auto-close --title="$MSG_TITLE"
+        
+        # Clear password from memory
+        unset password
+        
+        if [ $? -eq 0 ]; then
+            zenity --info --text="$MSG_SUCCESS $selected_ssid" --title="$MSG_TITLE"
+        else
+            zenity --error --text="$MSG_FAILED $selected_ssid" --title="$MSG_ERROR"
+        fi
+    else
+        # Connect to open network
+        (
+            echo "# Connecting to $selected_ssid..."
+            if nmcli device wifi connect "$selected_ssid" 2>/dev/null; then
+                echo "# $MSG_SUCCESS $selected_ssid"
+            else
+                echo "# $MSG_FAILED $selected_ssid"
+                exit 1
+            fi
+        ) | zenity --progress --pulsate --auto-close --title="$MSG_TITLE"
+        
+        if [ $? -eq 0 ]; then
+            zenity --info --text="$MSG_SUCCESS $selected_ssid" --title="$MSG_TITLE"
+        else
+            zenity --error --text="$MSG_FAILED $selected_ssid" --title="$MSG_ERROR"
+        fi
+    fi
+}
+
+# Disconnect WiFi
+disconnect_wifi_gui() {
+    # Get active WiFi connections
+    local active_connections=$(nmcli -t -f NAME,TYPE,DEVICE connection show --active | grep ":wifi:")
+    
+    if [ -z "$active_connections" ]; then
+        zenity --info --text="No active WiFi connections found" --title="$MSG_TITLE"
+        return 0
+    fi
+    
+    # Show active connections
+    local zenity_data=""
+    while IFS=: read -r name type device; do
+        zenity_data="$zenity_data$name\n$device\n$type\n"
+    done <<< "$active_connections"
+    
+    local selection=$(echo -e "$zenity_data" | zenity --list \
+        --title="$MSG_DISCONNECT" \
+        --column="Connection" \
+        --column="Device" \
+        --column="Type" \
+        --height=300 \
+        --width=500)
+    
+    if [ -z "$selection" ]; then
+        return 1
+    fi
+    
+    # Disconnect selected connection
+    (
+        echo "# Disconnecting $selection..."
+        if nmcli connection down "$selection" 2>/dev/null; then
+            echo "# $MSG_DISCONNECTED"
+        else
+            echo "# Failed to disconnect"
+            exit 1
+        fi
+    ) | zenity --progress --pulsate --auto-close --title="$MSG_TITLE"
+    
+    if [ $? -eq 0 ]; then
+        zenity --info --text="$MSG_DISCONNECTED: $selection" --title="$MSG_TITLE"
+    else
+        zenity --error --text="Failed to disconnect: $selection" --title="$MSG_ERROR"
+    fi
+}
+
+# Main menu
+show_main_menu() {
+    local choice=$(zenity --list \
+        --title="$MSG_TITLE" \
+        --column="Action" \
+        --column="Description" \
+        --height=300 \
+        --width=400 \
+        "connect" "$MSG_CONNECT" \
+        "disconnect" "$MSG_DISCONNECT" \
+        "scan" "Refresh WiFi scan" \
+        "quit" "Exit")
+    
+    case $choice in
+        "connect")
+            connect_wifi_gui
+            show_main_menu
+            ;;
+        "disconnect")
+            disconnect_wifi_gui
+            show_main_menu
+            ;;
+        "scan")
+            rm -f "$WIFI_CACHE_FILE"
+            zenity --info --text="WiFi cache cleared. Next scan will be fresh." --title="$MSG_TITLE"
+            show_main_menu
+            ;;
+        "quit"|"")
+            exit 0
+            ;;
+        *)
+            show_main_menu
+            ;;
+    esac
+}
+
+# Error handling with fallback
+main() {
+    # Check NetworkManager
+    if ! systemctl is-active --quiet NetworkManager; then
+        if zenity --question --text="NetworkManager is not active. Do you want to start it?" --title="$MSG_TITLE"; then
+            if ! sudo systemctl start NetworkManager; then
+                zenity --error --text="Failed to start NetworkManager" --title="$MSG_ERROR"
+                exit 1
+            fi
+        else
+            exit 1
+        fi
+    fi
+    
+    check_dependencies
+    show_main_menu
+}
+
+# Run main function
+main "$@"

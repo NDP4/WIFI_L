@@ -1,0 +1,464 @@
+#!/bin/bash
+
+# WiFi Connection Manager - Enhanced CLI Version
+# Script untuk mempermudah koneksi WiFi menggunakan nmcli dengan fitur keamanan dan cache
+# Author: GitHub Copilot
+# Version: 3.0
+
+# Internationalization
+LANG_CODE="${LANG:-en_US}"
+case $LANG_CODE in
+    id_ID*|id*)
+        MSG_HEADER="WiFi Connection Manager"
+        MSG_NETWORK_CHECK="Mengecek status NetworkManager..."
+        MSG_NETWORK_ACTIVE="NetworkManager sudah aktif"
+        MSG_NETWORK_INACTIVE="NetworkManager tidak aktif"
+        MSG_ENABLE_NETWORK="Mengaktifkan NetworkManager..."
+        MSG_ENABLE_SUCCESS="NetworkManager berhasil diaktifkan"
+        MSG_ENABLE_FAILED="Gagal mengaktifkan NetworkManager"
+        MSG_SCANNING="Memindai WiFi yang tersedia..."
+        MSG_WIFI_LIST="Daftar WiFi yang tersedia (diurutkan berdasarkan kekuatan sinyal):"
+        MSG_NO_WIFI="Tidak ada WiFi yang ditemukan!"
+        MSG_SELECT_NUMBER="Pilih nomor WiFi yang ingin dihubungkan"
+        MSG_INVALID_CHOICE="Pilihan tidak valid! Masukkan nomor antara"
+        MSG_SELECTED_WIFI="WiFi yang dipilih:"
+        MSG_NEED_PASSWORD="WiFi ini memerlukan password."
+        MSG_ENTER_PASSWORD="Masukkan password WiFi:"
+        MSG_EMPTY_PASSWORD="Password tidak boleh kosong! Silakan coba lagi."
+        MSG_CONNECTING="Menghubungkan ke WiFi:"
+        MSG_SUCCESS="Berhasil terhubung ke WiFi:"
+        MSG_FAILED="Gagal terhubung ke WiFi:"
+        MSG_CONNECTION_INFO="Informasi koneksi saat ini:"
+        MSG_CONFIRM_STATUS="Apakah ingin melihat status NetworkManager?"
+        MSG_CONFIRM_CONNECT="Apakah ingin menghubungkan ke WiFi?"
+        MSG_PROCESS_CANCELLED="Proses koneksi dibatalkan."
+        MSG_PROCESS_COMPLETE="Proses selesai!"
+        MSG_NO_ROOT="Jangan jalankan script ini sebagai root!"
+        MSG_USE_NORMAL_USER="Gunakan user biasa untuk keamanan."
+        ;;
+    *)
+        MSG_HEADER="WiFi Connection Manager"
+        MSG_NETWORK_CHECK="Checking NetworkManager status..."
+        MSG_NETWORK_ACTIVE="NetworkManager is active"
+        MSG_NETWORK_INACTIVE="NetworkManager is not active"
+        MSG_ENABLE_NETWORK="Enabling NetworkManager..."
+        MSG_ENABLE_SUCCESS="NetworkManager successfully enabled"
+        MSG_ENABLE_FAILED="Failed to enable NetworkManager"
+        MSG_SCANNING="Scanning available WiFi..."
+        MSG_WIFI_LIST="Available WiFi networks (sorted by signal strength):"
+        MSG_NO_WIFI="No WiFi networks found!"
+        MSG_SELECT_NUMBER="Select WiFi number to connect"
+        MSG_INVALID_CHOICE="Invalid choice! Enter number between"
+        MSG_SELECTED_WIFI="Selected WiFi:"
+        MSG_NEED_PASSWORD="This WiFi requires a password."
+        MSG_ENTER_PASSWORD="Enter WiFi password:"
+        MSG_EMPTY_PASSWORD="Password cannot be empty! Please try again."
+        MSG_CONNECTING="Connecting to WiFi:"
+        MSG_SUCCESS="Successfully connected to WiFi:"
+        MSG_FAILED="Failed to connect to WiFi:"
+        MSG_CONNECTION_INFO="Current connection information:"
+        MSG_CONFIRM_STATUS="Do you want to see NetworkManager status?"
+        MSG_CONFIRM_CONNECT="Do you want to connect to WiFi?"
+        MSG_PROCESS_CANCELLED="Connection process cancelled."
+        MSG_PROCESS_COMPLETE="Process complete!"
+        MSG_NO_ROOT="Don't run this script as root!"
+        MSG_USE_NORMAL_USER="Use regular user for security."
+        ;;
+esac
+
+# Warna untuk output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Cache configuration
+CACHE_DIR="$HOME/.cache/konekwifi"
+WIFI_CACHE_FILE="$CACHE_DIR/wifi_scan.cache"
+CACHE_TIMEOUT=30  # seconds
+
+# Security: Pastikan tidak dijalankan sebagai root kecuali untuk operasi NetworkManager
+if [[ $EUID -eq 0 ]] && [[ "$1" != "--allow-root" ]]; then
+    echo -e "${RED}❌ $MSG_NO_ROOT${NC}"
+    echo -e "${YELLOW}💡 $MSG_USE_NORMAL_USER${NC}"
+    exit 1
+fi
+
+# Create cache directory
+mkdir -p "$CACHE_DIR"
+
+# Fungsi untuk menampilkan header
+show_header() {
+    clear
+    echo -e "${BLUE}================================================${NC}"
+    echo -e "${BLUE}           $MSG_HEADER              ${NC}"
+    echo -e "${BLUE}================================================${NC}"
+    echo ""
+}
+
+# Fungsi untuk menampilkan pesan dengan warna
+print_message() {
+    local color=$1
+    local message=$2
+    echo -e "${color}${message}${NC}"
+}
+
+# Fungsi untuk konfirmasi ya/tidak
+confirm_action() {
+    local prompt=$1
+    while true; do
+        echo -e "${YELLOW}${prompt} (y/n): ${NC}"
+        read -r response
+        case $response in
+            [Yy]* ) return 0;;
+            [Nn]* ) return 1;;
+            * ) print_message $RED "Silakan jawab dengan y atau n.";;
+        esac
+    done
+}
+
+# Cache management
+is_cache_valid() {
+    if [ ! -f "$WIFI_CACHE_FILE" ]; then
+        return 1
+    fi
+    
+    local cache_time=$(stat -c %Y "$WIFI_CACHE_FILE" 2>/dev/null || echo 0)
+    local current_time=$(date +%s)
+    local age=$((current_time - cache_time))
+    
+    [ $age -lt $CACHE_TIMEOUT ]
+}
+
+# Error handling dengan fallback
+check_dependencies() {
+    local missing_deps=()
+    
+    if ! command -v nmcli &> /dev/null; then
+        missing_deps+=("nmcli (NetworkManager)")
+    fi
+    
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        print_message $RED "❌ Dependencies missing:"
+        for dep in "${missing_deps[@]}"; do
+            print_message $YELLOW "   - $dep"
+        done
+        
+        print_message $YELLOW "💡 Install commands:"
+        print_message $YELLOW "   Ubuntu/Debian: sudo apt install network-manager"
+        print_message $YELLOW "   Fedora/RHEL:   sudo dnf install NetworkManager"
+        print_message $YELLOW "   Arch Linux:    sudo pacman -S networkmanager"
+        exit 1
+    fi
+}
+
+# Fungsi untuk cek status NetworkManager
+check_networkmanager_status() {
+    print_message $BLUE "$MSG_NETWORK_CHECK"
+    sudo systemctl status NetworkManager --no-pager | head -10
+    echo ""
+    
+    if systemctl is-active --quiet NetworkManager; then
+        print_message $GREEN "✓ $MSG_NETWORK_ACTIVE"
+        return 0
+    else
+        print_message $RED "✗ $MSG_NETWORK_INACTIVE"
+        return 1
+    fi
+}
+
+# Fungsi untuk mengaktifkan NetworkManager
+enable_networkmanager() {
+    print_message $BLUE "$MSG_ENABLE_NETWORK"
+    
+    print_message $YELLOW "Menjalankan: sudo systemctl enable NetworkManager"
+    sudo systemctl enable NetworkManager
+    
+    print_message $YELLOW "Menjalankan: sudo systemctl start NetworkManager"
+    sudo systemctl start NetworkManager
+    
+    sleep 2
+    
+    if systemctl is-active --quiet NetworkManager; then
+        print_message $GREEN "✓ $MSG_ENABLE_SUCCESS"
+        return 0
+    else
+        print_message $RED "✗ $MSG_ENABLE_FAILED"
+        return 1
+    fi
+}
+
+# WiFi scanning with cache
+scan_wifi_cached() {
+    if is_cache_valid; then
+        cat "$WIFI_CACHE_FILE"
+        return
+    fi
+    
+    print_message $BLUE "🔍 $MSG_SCANNING"
+    print_message $YELLOW "Menjalankan: nmcli device wifi rescan"
+    nmcli device wifi rescan 2>/dev/null
+    sleep 3
+    
+    nmcli -t -f SSID,SECURITY,SIGNAL device wifi list | \
+        grep -v '^--' | grep -v '^$' | sort -t: -k3 -nr > "$WIFI_CACHE_FILE"
+    
+    cat "$WIFI_CACHE_FILE"
+}
+
+# Fungsi untuk menampilkan daftar WiFi dengan nomor untuk dipilih
+show_wifi_selection() {
+    local wifi_data=$(scan_wifi_cached)
+    
+    print_message $BLUE "📶 $MSG_WIFI_LIST"
+    echo "================================================"
+    
+    if [ -z "$wifi_data" ]; then
+        print_message $RED "❌ $MSG_NO_WIFI"
+        print_message $YELLOW "💡 Pastikan:"
+        print_message $YELLOW "   - Adapter WiFi sudah aktif"
+        print_message $YELLOW "   - Ada WiFi di sekitar Anda"
+        print_message $YELLOW "   - NetworkManager berjalan dengan baik"
+        return 1
+    fi
+    
+    local index=1
+    declare -g wifi_ssids=()
+    declare -g wifi_securities=()
+    
+    printf "%-4s %-25s %-12s %-8s %s\n" "No." "SSID" "Security" "Signal" "Status"
+    echo "================================================"
+    
+    # Array untuk mencegah duplikasi SSID
+    declare -A seen_ssids
+    
+    while IFS=: read -r ssid security signal; do
+        if [ -n "$ssid" ] && [ "$ssid" != "--" ] && [ -z "${seen_ssids[$ssid]}" ]; then
+            seen_ssids["$ssid"]=1
+            wifi_ssids+=("$ssid")
+            wifi_securities+=("$security")
+            
+            # Format security untuk tampilan yang lebih baik
+            local security_display="$security"
+            if [ "$security" = "--" ] || [ -z "$security" ]; then
+                security_display="Open"
+            fi
+            
+            # Format signal strength dengan icon
+            local signal_icon="📶"
+            if [ "$signal" -gt 70 ]; then
+                signal_icon="📶📶📶"
+            elif [ "$signal" -gt 50 ]; then
+                signal_icon="📶📶"
+            elif [ "$signal" -gt 30 ]; then
+                signal_icon="📶"
+            else
+                signal_icon="📱"
+            fi
+            
+            printf "%-4s %-25s %-12s %-8s %s\n" "$index" "$ssid" "$security_display" "$signal%" "$signal_icon"
+            ((index++))
+            
+            # Limit maksimum 20 WiFi untuk menghindari list yang terlalu panjang
+            if [ $index -gt 20 ]; then
+                break
+            fi
+        fi
+    done <<< "$wifi_data"
+    
+    echo "================================================"
+    print_message $BLUE "💡 Ditemukan ${#wifi_ssids[@]} WiFi yang tersedia"
+    
+    return 0
+}
+
+# Fungsi untuk koneksi WiFi dengan sistem pemilihan nomor
+connect_wifi() {
+    echo ""
+    
+    # Tampilkan daftar WiFi untuk dipilih
+    if ! show_wifi_selection; then
+        return 1
+    fi
+    
+    echo ""
+    
+    # Loop untuk validasi input nomor
+    while true; do
+        print_message $YELLOW "$MSG_SELECT_NUMBER (1-${#wifi_ssids[@]}):"
+        read -r choice
+        
+        # Validasi input
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#wifi_ssids[@]}" ]; then
+            break
+        else
+            print_message $RED "❌ $MSG_INVALID_CHOICE 1-${#wifi_ssids[@]}"
+            echo ""
+        fi
+    done
+    
+    # Ambil SSID dan security berdasarkan pilihan
+    local array_index=$((choice - 1))
+    local selected_ssid="${wifi_ssids[$array_index]}"
+    local selected_security="${wifi_securities[$array_index]}"
+    
+    print_message $GREEN "✓ $MSG_SELECTED_WIFI $selected_ssid"
+    
+    # Cek apakah WiFi memerlukan password
+    if [[ "$selected_security" == *"WPA"* ]] || [[ "$selected_security" == *"WEP"* ]] || [[ "$selected_security" != "--" ]]; then
+        print_message $YELLOW "🔒 $MSG_NEED_PASSWORD"
+        
+        # Loop untuk input password dengan security
+        while true; do
+            print_message $YELLOW "$MSG_ENTER_PASSWORD"
+            # Security: Menggunakan read -s agar password tidak terlihat dan tidak masuk history
+            read -s password
+            echo ""
+            
+            if [ -n "$password" ]; then
+                break
+            else
+                print_message $RED "❌ $MSG_EMPTY_PASSWORD"
+                echo ""
+            fi
+        done
+        
+        print_message $BLUE "🔄 $MSG_CONNECTING $selected_ssid"
+        print_message $YELLOW "Menjalankan: nmcli device wifi connect \"$selected_ssid\" password \"***\""
+        
+        # Security: Menggunakan process substitution untuk menghindari password di command line
+        if echo "$password" | nmcli device wifi connect "$selected_ssid" password - 2>/dev/null; then
+            print_message $GREEN "✅ $MSG_SUCCESS $selected_ssid"
+            show_connection_info
+        else
+            print_message $RED "❌ $MSG_FAILED $selected_ssid"
+            print_message $YELLOW "💡 Kemungkinan penyebab:"
+            print_message $YELLOW "   - Password salah"
+            print_message $YELLOW "   - Signal terlalu lemah"
+            print_message $YELLOW "   - WiFi sudah penuh"
+            print_message $YELLOW "   - Masalah konfigurasi router"
+            
+            # Clear password from memory
+            unset password
+            return 1
+        fi
+        
+        # Security: Clear password from memory
+        unset password
+    else
+        print_message $BLUE "🔄 $MSG_CONNECTING $selected_ssid"
+        print_message $YELLOW "Menjalankan: nmcli device wifi connect \"$selected_ssid\""
+        
+        if nmcli device wifi connect "$selected_ssid" 2>/dev/null; then
+            print_message $GREEN "✅ $MSG_SUCCESS $selected_ssid"
+            show_connection_info
+        else
+            print_message $RED "❌ $MSG_FAILED $selected_ssid"
+            print_message $YELLOW "💡 Kemungkinan penyebab:"
+            print_message $YELLOW "   - Signal terlalu lemah"
+            print_message $YELLOW "   - WiFi sudah penuh"
+            print_message $YELLOW "   - Masalah konfigurasi router"
+            return 1
+        fi
+    fi
+}
+
+# Fungsi untuk menampilkan info koneksi
+show_connection_info() {
+    echo ""
+    print_message $BLUE "$MSG_CONNECTION_INFO"
+    echo "================================================"
+    nmcli connection show --active
+    echo ""
+    nmcli device status
+    echo "================================================"
+}
+
+# Fungsi utama untuk koneksi WiFi
+main_connect_process() {
+    show_header
+    
+    # Check dependencies first
+    check_dependencies
+    
+    # 1. Cek status NetworkManager
+    if confirm_action "$MSG_CONFIRM_STATUS"; then
+        if ! check_networkmanager_status; then
+            if confirm_action "NetworkManager tidak aktif. Apakah ingin mengaktifkannya?"; then
+                if ! enable_networkmanager; then
+                    print_message $RED "Gagal mengaktifkan NetworkManager. Keluar dari program."
+                    exit 1
+                fi
+            else
+                print_message $YELLOW "NetworkManager perlu diaktifkan untuk melanjutkan."
+                exit 1
+            fi
+        fi
+    else
+        # Langsung cek tanpa menampilkan status
+        if ! systemctl is-active --quiet NetworkManager; then
+            print_message $RED "NetworkManager tidak aktif!"
+            if confirm_action "Apakah ingin mengaktifkannya?"; then
+                if ! enable_networkmanager; then
+                    print_message $RED "Gagal mengaktifkan NetworkManager. Keluar dari program."
+                    exit 1
+                fi
+            else
+                print_message $YELLOW "NetworkManager perlu diaktifkan untuk melanjutkan."
+                exit 1
+            fi
+        fi
+    fi
+    
+    echo ""
+    
+    # 2. Koneksi WiFi (dengan sistem pemilihan nomor)
+    if confirm_action "$MSG_CONFIRM_CONNECT"; then
+        connect_wifi
+    else
+        print_message $YELLOW "$MSG_PROCESS_CANCELLED"
+    fi
+    
+    echo ""
+    print_message $GREEN "$MSG_PROCESS_COMPLETE"
+}
+
+# Show help
+show_help() {
+    show_header
+    print_message $BLUE "Panduan Penggunaan WiFi Connection Manager"
+    echo ""
+    echo "PERINTAH YANG TERSEDIA:"
+    echo "  konekwifi-v3      - Proses lengkap koneksi WiFi (Enhanced CLI)"
+    echo "  konekwifi-v3 --help - Menampilkan bantuan ini"
+    echo ""
+    echo "FITUR BARU:"
+    echo "  ✅ Cache WiFi scan (mengurangi delay)"
+    echo "  ✅ Security enhancement (password tidak masuk log/history)"
+    echo "  ✅ Root validation (mencegah running sebagai root)"
+    echo "  ✅ Internationalization (ID/EN)"
+    echo "  ✅ Enhanced error handling dengan fallback"
+    echo ""
+    echo "KEAMANAN:"
+    echo "  - Password menggunakan read -s (tidak terlihat)"
+    echo "  - Password tidak masuk command history"
+    echo "  - Validasi mencegah running sebagai root"
+    echo "  - Password di-clear dari memory setelah digunakan"
+    echo ""
+    echo "CACHE:"
+    echo "  - Hasil scan WiFi di-cache selama $CACHE_TIMEOUT detik"
+    echo "  - Cache disimpan di: $WIFI_CACHE_FILE"
+    echo "  - Mengurangi delay pada scan berulang"
+    echo ""
+}
+
+# Main script logic
+case "${1:-}" in
+    --help|-h)
+        show_help
+        ;;
+    *)
+        main_connect_process
+        ;;
+esac

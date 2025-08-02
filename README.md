@@ -1,51 +1,104 @@
-# WiFi Connection Manager
+# WiFi Connection Manager (konekwifi)
 
-Aplikasi sederhana berbasis bash script untuk mempermudah koneksi WiFi di Linux menggunakan `nmcli` tanpa perlu mengingat perintah-perintah yang rumit.
+Comprehensive WiFi connection manager untuk Linux dengan multiple versions dan fitur advanced.
 
 ## 📋 Daftar Isi
 
 - [Fitur Utama](#fitur-utama)
+- [Available Versions](#available-versions)
+- [Quick Start](#quick-start)
 - [Persyaratan Sistem](#persyaratan-sistem)
 - [Instalasi](#instalasi)
 - [Cara Penggunaan](#cara-penggunaan)
-- [Perintah yang Tersedia](#perintah-yang-tersedia)
-- [Contoh Penggunaan](#contoh-penggunaan)
+- [Advanced Features](#advanced-features)
 - [Troubleshooting](#troubleshooting)
+- [Testing](#testing)
 - [Uninstall](#uninstall)
+- [Changelog](#changelog)
 
 ## 🚀 Fitur Utama
 
-### ✅ konekwifi
+### Core Features
 
-- Cek status NetworkManager otomatis
-- Aktifkan NetworkManager jika diperlukan
-- Scan dan tampilkan daftar WiFi tersedia
-- **🆕 SISTEM PEMILIHAN WiFi DENGAN NOMOR** _(Tidak perlu mengetik SSID)_
-- **🆕 TAMPILAN DAFTAR WiFi YANG RAPI** _(Diurutkan berdasarkan kekuatan sinyal)_
-- **🆕 VALIDASI INPUT YANG ROBUST** _(Loop validasi untuk input yang salah)_
-- **🆕 TAMPILAN DENGAN EMOJI DAN ICON** _(User experience yang lebih baik)_
-- Koneksi ke WiFi dengan atau tanpa password
-- Interface interaktif dengan konfirmasi untuk setiap langkah
-- Tampilkan informasi koneksi setelah berhasil terhubung
+- ✅ Koneksi WiFi dengan mudah (tidak perlu mengingat command nmcli yang kompleks)
+- ✅ Pemilihan WiFi berdasarkan nomor (tidak perlu mengetik nama SSID)
+- ✅ Putus koneksi WiFi dengan mudah
+- ✅ Deteksi WiFi yang sedang aktif dengan 3 metode deteksi
+- ✅ Interface yang user-friendly dengan warna dan emoji
+- ✅ Validasi input password dengan secure input
+- ✅ Easy uninstall dengan command `uninstallwifi`
 
-### ✅ putuswifi
+### Advanced Features (v3.0)
 
-- **🆕 DETEKSI KONEKSI WiFi YANG AKURAT** _(Menggunakan 3 metode deteksi)_
-- **🆕 INFORMASI DETAIL KONEKSI AKTIF** _(SSID, perangkat, IP, signal strength)_
-- **🆕 TAMPILAN INFORMASI YANG LENGKAP** _(Status perangkat dan koneksi detail)_
-- Putuskan koneksi WiFi aktif
-- Kelola profil WiFi yang tersimpan
-- Hapus profil WiFi tertentu
-- Interface yang user-friendly
+- 🔒 **Security**: Root user prevention, secure password handling
+- 🌍 **Internationalization**: Support Bahasa Indonesia & English
+- ⚡ **Performance**: WiFi list caching, optimized scanning
+- 🖥️ **GUI Support**: Zenity-based graphical interface
+- 📊 **Enhanced Logging**: Comprehensive error reporting
+- 🔧 **Enhanced Error Handling**: Multiple fallback methods
 
-### ✅ Fitur Tambahan
+## 📦 Available Versions
 
-- **🆕 OUTPUT BERWARNA DAN EMOJI** untuk kemudahan reading
-- **🆕 ERROR HANDLING YANG INFORMATIF** dengan saran solusi
-- **🆕 LOOP VALIDASI INPUT** untuk mencegah error input
-- **🆕 PENCEGAHAN DUPLIKASI SSID** dalam daftar WiFi
-- Validasi input pengguna yang ketat
-- Help/bantuan terintegrasi
+| Version         | Description         | Features                                |
+| --------------- | ------------------- | --------------------------------------- |
+| `konekwifi`     | Original CLI        | Basic WiFi management                   |
+| `konekwifi-v3`  | Enhanced CLI        | Security, i18n, caching                 |
+| `konekwifi-gui` | GUI Version         | Zenity integration, graphical interface |
+| `putuswifi`     | Disconnect CLI      | Original disconnect functionality       |
+| `putuswifi-v3`  | Enhanced Disconnect | Enhanced with i18n and security         |
+
+## 🚀 Quick Start
+
+### Instalasi
+
+```bash
+# Clone atau download project
+git clone <repository-url>
+cd konekwifi
+
+# Install dengan enhanced installer
+chmod +x install-v3.sh
+./install-v3.sh
+
+# Atau install dengan installer original
+chmod +x install.sh
+./install.sh
+```
+
+### Penggunaan
+
+#### CLI Versions
+
+```bash
+# Original CLI version
+konekwifi        # Connect to WiFi
+putuswifi        # Disconnect WiFi
+
+# Enhanced CLI version (v3)
+konekwifi-v3     # Enhanced connect with security features
+putuswifi-v3     # Enhanced disconnect with i18n
+
+# Help
+konekwifi --help
+konekwifi-v3 --help
+```
+
+#### GUI Version
+
+```bash
+# Graphical interface (requires zenity)
+konekwifi-gui
+```
+
+#### Maintenance
+
+```bash
+# Uninstall
+uninstallwifi
+
+# Test installation
+./test-v3.sh
+```
 
 ## 🔧 Persyaratan Sistem
 
