@@ -53,8 +53,8 @@ Comprehensive WiFi connection manager untuk Linux dengan multiple versions dan f
 
 ```bash
 # Clone atau download project
-git clone <repository-url>
-cd konekwifi
+git clone https://github.com/NDP4/WIFI_L.git
+cd WIFI_L
 
 # Install dengan enhanced installer
 chmod +x install-v3.sh
