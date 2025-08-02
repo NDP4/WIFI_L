@@ -78,8 +78,8 @@ sudo zypper install NetworkManager
 
 ```bash
 # Clone repository
-git clone <repository-url>
-cd konekwifi
+git clone https://github.com/NDP4/WIFI_L.git
+cd WIFI_L
 
 # Atau download manual dan extract
 ```
